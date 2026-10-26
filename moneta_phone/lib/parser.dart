@@ -77,3 +77,31 @@ ParsedSms? parseBankSms(String body) {
   if (amount == null || amount <= 0 || label == null || sign == null) return null;
   return ParsedSms(sign == '+' ? 'income' : 'expense', amount, balance, label, account);
 }
+
+/// Parses Blu bank SMS, e.g.
+///   بلو
+///   برداشت پول
+///   ماني عزیز، 334,840ریال از حساب شما پرید.
+///   موجودی: 43,415,184 ریال
+/// "پرید" = expense, "نشست" = income. The one-time-password SMS
+/// ("بفرمایید رمز پویا ... مبلغ: ... رمز: ...") is NOT a transaction and returns null;
+/// the real debit arrives later as a separate "برداشت پول" SMS.
+ParsedSms? parseBluSms(String body) {
+  final t = normalizeText(body);
+  final m = RegExp(r'([\d,]+)\s*ریال\s*(?:بابت\s+.+?\s+)?(از حساب شما پرید|به حساب شما نشست)').firstMatch(t);
+  if (m == null) return null;
+  final amount = int.tryParse(m[1]!.replaceAll(',', ''));
+  if (amount == null || amount <= 0) return null;
+  final income = m[2]!.startsWith('به');
+
+  final bm = RegExp(r'موجودی\s*[:：]\s*([\d,]+)').firstMatch(t);
+  final balance = bm == null ? null : int.tryParse(bm[1]!.replaceAll(',', ''));
+
+  // "بابت خرید شارژ از حساب" -> description "خرید شارژ"; otherwise a generic label.
+  final purpose = RegExp(r'بابت\s+(.+?)\s+از حساب').firstMatch(t);
+  final desc = purpose?[1] ?? (income ? 'واریز پول' : 'برداشت پول');
+  return ParsedSms(income ? 'income' : 'expense', amount, balance, desc, null);
+}
+
+/// Tries every known bank format.
+ParsedSms? parseAnySms(String body) => parseBankSms(body) ?? parseBluSms(body);

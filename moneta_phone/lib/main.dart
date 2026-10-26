@@ -79,7 +79,7 @@ class _HomeState extends State<Home> {
           ExpansionTile(title: const Text('Settings'), children: [
             TextField(controller: url, decoration: const InputDecoration(labelText: 'Apps Script web app URL')),
             TextField(controller: token, decoration: const InputDecoration(labelText: 'Secret token')),
-            TextField(controller: sender, decoration: const InputDecoration(labelText: 'Sender (end of number)')),
+            TextField(controller: sender, decoration: const InputDecoration(labelText: 'Sender(s) (end of number, comma separated)')),
             SwitchListTile(title: const Text('Convert rial to toman (÷10)'), value: toman, onChanged: (v) => setState(() => toman = v)),
             SwitchListTile(title: const Text('Also send original SMS text'), value: raw, onChanged: (v) => setState(() => raw = v)),
             TextButton(onPressed: _saveSettings, child: const Text('Save settings')),

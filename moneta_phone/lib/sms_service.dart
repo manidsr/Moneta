@@ -19,13 +19,19 @@ class SmsService {
   static Future<bool> ingest(String? address, String? body, int? dateMs) async {
     if (address == null || body == null) return false;
     final s = await Settings.load();
-    final suffix = digitsOnly(s.senderSuffix);
-    if (suffix.isEmpty || !digitsOnly(address).endsWith(suffix)) return false;
-    final p = parseBankSms(body);
+    // Setting may hold several senders, e.g. "30009417, 9999987641"
+    final suffixes = s.senderSuffix
+        .split(RegExp(r'[,;\s]+'))
+        .map(digitsOnly)
+        .where((x) => x.isNotEmpty);
+    final addr = digitsOnly(address);
+    final suffix = suffixes.cast<String?>().firstWhere((x) => addr.endsWith(x!), orElse: () => null);
+    if (suffix == null) return false;
+    final p = parseAnySms(body);
     if (p == null) return false;
 
     final date = dateMs ?? DateTime.now().millisecondsSinceEpoch;
-    // Same SMS -> same uid, always. Leading letter stops Sheets reading it as a number.
+    // uses the MATCHED suffix, so Melli uids stay identical to before (no duplicates)
     final uid = 'm${sha1.convert(utf8.encode('$suffix|$date|$body')).toString().substring(0, 32)}';
     int conv(int v) => s.rialToToman ? (v / 10).round() : v;
     final amount = conv(p.amount);

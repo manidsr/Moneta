@@ -1,0 +1,107 @@
+/// Parses Bank Melli SMS text. Pure Dart, no plugins, so it is easy to test.
+///
+///   بانك ملي ايران
+///   برداشت:2,262,000-
+///   حساب:22003
+///   مانده:13,214,736
+///   0718-20:37
+class ParsedSms {
+  final String type; // 'income' | 'expense'
+  final int amount; // as written in the SMS (rial)
+  final int? balance; // as written in the SMS (rial)
+  final String description; // e.g. برداشت, انتقال, خریداینترنتی
+  final String? account;
+  const ParsedSms(this.type, this.amount, this.balance, this.description, this.account);
+}
+
+/// Persian/Arabic digits -> ASCII, Arabic ي/ك -> Persian ی/ک, strips direction marks.
+String normalizeText(String s) {
+  const fa = '۰۱۲۳۴۵۶۷۸۹', ar = '٠١٢٣٤٥٦٧٨٩';
+  final b = StringBuffer();
+  for (final r in s.runes) {
+    final c = String.fromCharCode(r);
+    var i = fa.indexOf(c);
+    if (i < 0) i = ar.indexOf(c);
+    if (i >= 0) {
+      b.write(i);
+    } else if (c == 'ي') {
+      b.write('ی');
+    } else if (c == 'ك') {
+      b.write('ک');
+    } else if (c == '٬') {
+      b.write(',');
+    } else {
+      b.write(c);
+    }
+  }
+  return b.toString().replaceAll(RegExp('[\u200e\u200f\u202a-\u202e]'), '');
+}
+
+String digitsOnly(String s) => normalizeText(s).replaceAll(RegExp(r'\D'), '');
+
+ParsedSms? parseBankSms(String body) {
+  final lines = normalizeText(body)
+      .split(RegExp(r'[\r\n]+'))
+      .map((l) => l.trim())
+      .where((l) => l.isNotEmpty)
+      .toList();
+
+  // "label:amount-"  or "label:amount+"  (sign may end up on either side)
+  final amountRe = RegExp(r'^(.+?)\s*[:：]\s*([+\-])?\s*([\d,]+)\s*([+\-])?$');
+  final balanceRe = RegExp(r'^مانده\s*[:：]\s*(-?)\s*([\d,]+)');
+  final accountRe = RegExp(r'^حساب\s*[:：]\s*(\S+)');
+
+  String? label, sign, account;
+  int? amount, balance;
+  for (final l in lines) {
+    final bm = balanceRe.firstMatch(l);
+    if (bm != null) {
+      final v = int.parse(bm[2]!.replaceAll(',', ''));
+      balance = bm[1] == '-' ? -v : v;
+      continue;
+    }
+    final am = accountRe.firstMatch(l);
+    if (am != null) {
+      account = am[1];
+      continue;
+    }
+    final m = amountRe.firstMatch(l);
+    if (m != null && amount == null) {
+      final s = m[2] ?? m[4];
+      if (s == null || (m[2] != null && m[4] != null)) continue; // the time line etc.
+      label = m[1]!.trim();
+      sign = s;
+      amount = int.parse(m[3]!.replaceAll(',', ''));
+    }
+  }
+  if (amount == null || amount <= 0 || label == null || sign == null) return null;
+  return ParsedSms(sign == '+' ? 'income' : 'expense', amount, balance, label, account);
+}
+
+/// Parses Blu bank SMS, e.g.
+///   بلو
+///   برداشت پول
+///   ماني عزیز، 334,840ریال از حساب شما پرید.
+///   موجودی: 43,415,184 ریال
+/// "پرید" = expense, "نشست" = income. The one-time-password SMS
+/// ("بفرمایید رمز پویا ... مبلغ: ... رمز: ...") is NOT a transaction and returns null;
+/// the real debit arrives later as a separate "برداشت پول" SMS.
+ParsedSms? parseBluSms(String body) {
+  final t = normalizeText(body);
+  final m = RegExp(r'([\d,]+)\s*ریال\s*(از حساب شما پرید|به حساب شما نشست)').firstMatch(t);
+  if (m == null) return null;
+  final amount = int.tryParse(m[1]!.replaceAll(',', ''));
+  if (amount == null || amount <= 0) return null;
+  final income = m[2]!.startsWith('به');
+
+  final bm = RegExp(r'موجودی\s*[:：]\s*([\d,]+)').firstMatch(t);
+  final balance = bm == null ? null : int.tryParse(bm[1]!.replaceAll(',', ''));
+
+  // "بابت خرید شارژ از حساب" -> description "خرید شارژ"; otherwise a generic label.
+  final purpose = RegExp(r'بابت\s+(.+?)\s+از حساب').firstMatch(t);
+  final desc = purpose?[1] ?? (income ? 'واریز پول' : 'برداشت پول');
+  return ParsedSms(income ? 'income' : 'expense', amount, balance, desc, null);
+}
+
+/// Tries every known bank format.
+ParsedSms? parseAnySms(String body) => parseBankSms(body) ?? parseBluSms(body);

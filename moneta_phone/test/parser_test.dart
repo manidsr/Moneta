@@ -16,4 +16,15 @@ void main() {
   test('non-transaction text is ignored', () {
     expect(parseBankSms('کد تایید: 123456'), isNull);
   });
+  test('blu withdrawal, deposit, charge', () {
+    final w = parseBluSms('بلو\nبرداشت پول\nماني عزیز، 334,840ریال از حساب شما پرید.\nموجودی: 43,415,184 ریال')!;
+    expect((w.type, w.amount, w.balance, w.description), ('expense', 334840, 43415184, 'برداشت پول'));
+    final i = parseBluSms('بلو\nواریز پول\nماني عزیز، 52,607,850ریال به حساب شما نشست.\nموجودی: 52,620,024 ریال')!;
+    expect((i.type, i.amount, i.balance), ('income', 52607850, 52620024));
+    final c = parseBluSms('بلو\nشارژ شدی\n ماني عزیز، 500,000 ریال بابت خرید شارژ از حساب شما پرید.\nموجودی: 4,123,174 ریال')!;
+    expect((c.type, c.amount, c.description), ('expense', 500000, 'خرید شارژ'));
+  });
+  test('blu one-time-password SMS is ignored', () {
+    expect(parseBluSms('بلو\nبفرمایید رمز پویا\nخرید\nايرانسل\nمبلغ: 334,840 ریال\nرمز: 284046'), isNull);
+  });
 }
