@@ -54,6 +54,7 @@ class Store {
   static Future<Database> db() async => _db ??= await openDatabase(
         p.join(await getDatabasesPath(), 'moneta_phone.db'),
         version: 1,
+        onOpen: (d) => d.execute('CREATE INDEX IF NOT EXISTS i_sent_date ON queue(sent, date)'),
         onCreate: (d, _) => d.execute('''
           CREATE TABLE queue (
             uid TEXT PRIMARY KEY, date INTEGER NOT NULL, type TEXT NOT NULL,

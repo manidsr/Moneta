@@ -1,0 +1,20 @@
+name: moneta_phone
+description: Reads bank SMS and sends them to the Moneta Google Sheet.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+dependencies:
+  flutter:
+    sdk: flutter
+  another_telephony: ^0.4.1
+  sqflite: ^2.3.0
+  path: ^1.9.0
+  shared_preferences: ^2.2.0
+  http: ^1.2.0
+  crypto: ^3.0.3
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+flutter:
+  uses-material-design: true

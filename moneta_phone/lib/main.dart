@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'sms_service.dart';
 import 'store.dart';
 import 'uploader.dart';
+import 'worker.dart';
 
 void main() => runApp(const MaterialApp(
     title: 'Moneta', debugShowCheckedModeBanner: false, home: Home()));
@@ -13,6 +16,7 @@ class Home extends StatefulWidget {
 }
 
 class _HomeState extends State<Home> {
+  static const _bat = MethodChannel('moneta/battery');
   final url = TextEditingController(), token = TextEditingController(), sender = TextEditingController();
   bool toman = true, raw = false, busy = false;
   int pending = 0, sent = 0;
@@ -23,6 +27,10 @@ class _HomeState extends State<Home> {
   void initState() {
     super.initState();
     _init();
+  }
+
+  void _say(String m) {
+    if (mounted) setState(() => status = m);
   }
 
   Future<void> _init() async {
@@ -36,16 +44,38 @@ class _HomeState extends State<Home> {
       SmsService.listen(_refresh);
     } catch (_) {}
     await _refresh();
+    _startBackground();
+  }
+
+  /// Not awaited by the UI: worker every 30 min, one quiet catch-up now, battery dialog once.
+  Future<void> _startBackground() async {
+    try {
+      await startWorker();
+    } catch (e) {
+      _say('Background worker not started: $e');
+    }
+    try {
+      await SmsService.scanInbox();
+      await Uploader.syncPending();
+    } catch (_) {}
+    await _refresh();
+    final p = await SharedPreferences.getInstance();
+    if (!(p.getBool('batAsked') ?? false)) {
+      await p.setBool('batAsked', true);
+      try {
+        await _bat.invokeMethod('request');
+      } catch (_) {}
+    }
   }
 
   Future<void> _refresh() async {
-    final p = await Store.count(sent: false), s = await Store.count(sent: true), r = await Store.recent();
+    final p = await Store.count(sent: false), s = await Store.count(sent: true), r = await Store.recent(limit: 30);
     if (mounted) setState(() { pending = p; sent = s; recent = r; });
   }
 
   Future<void> _saveSettings() async {
     await Settings(url.text, token.text, sender.text, toman, raw).save();
-    setState(() => status = 'Settings saved');
+    _say('Settings saved');
   }
 
   Future<void> _scanAndSync() async {
@@ -53,13 +83,13 @@ class _HomeState extends State<Home> {
     setState(() { busy = true; status = 'Reading messages...'; });
     try {
       final added = await SmsService.scanInbox();
-      setState(() => status = 'Found $added new message(s). Uploading...');
+      _say('Found $added new message(s). Uploading...');
       final err = await Uploader.syncPending();
-      status = err ?? 'Done. $added new message(s) queued and uploaded.';
+      _say(err ?? 'Done. $added new message(s) queued and uploaded.');
     } catch (e) {
-      status = '$e';
+      _say('$e');
     }
-    setState(() => busy = false);
+    if (mounted) setState(() => busy = false);
     await _refresh();
   }
 
@@ -75,6 +105,8 @@ class _HomeState extends State<Home> {
               onPressed: busy ? null : _scanAndSync,
               icon: const Icon(Icons.sync),
               label: Text(busy ? 'Working...' : 'Scan inbox & sync')),
+          const SizedBox(height: 4),
+          Text('Auto: scan + upload every 30 min in the background.', style: Theme.of(context).textTheme.bodySmall),
           if (status.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(status)),
           ExpansionTile(title: const Text('Settings'), children: [
             TextField(controller: url, decoration: const InputDecoration(labelText: 'Apps Script web app URL')),
@@ -83,6 +115,7 @@ class _HomeState extends State<Home> {
             SwitchListTile(title: const Text('Convert rial to toman (÷10)'), value: toman, onChanged: (v) => setState(() => toman = v)),
             SwitchListTile(title: const Text('Also send original SMS text'), value: raw, onChanged: (v) => setState(() => raw = v)),
             TextButton(onPressed: _saveSettings, child: const Text('Save settings')),
+            TextButton(onPressed: () => _bat.invokeMethod('request'), child: const Text('Keep app alive (battery setting)')),
           ]),
           const Divider(),
           for (final t in recent)
